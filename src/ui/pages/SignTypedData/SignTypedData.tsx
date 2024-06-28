@@ -21,7 +21,6 @@ import { TextAnchor } from 'src/ui/ui-kit/TextAnchor';
 import { HStack } from 'src/ui/ui-kit/HStack';
 import { WalletDisplayName } from 'src/ui/components/WalletDisplayName';
 import { WalletAvatar } from 'src/ui/components/WalletAvatar';
-import { KeyboardShortcut } from 'src/ui/components/KeyboardShortcut';
 import ArrowDownIcon from 'jsx:src/ui/assets/arrow-down.svg';
 import { prepareForHref } from 'src/ui/shared/prepareForHref';
 import type { TypedData } from 'src/modules/ethereum/message-signing/TypedData';
@@ -276,6 +275,7 @@ function TypedDataDefaultView({
             wallet={wallet}
             singleAsset={addressAction?.content?.single_asset}
             allowanceQuantityBase={allowanceQuantityBase || null}
+            showApplicationLine={true}
             singleAssetElementEnd={
               allowanceQuantityBase &&
               addressAction.type.value === 'approve' ? (
@@ -290,15 +290,20 @@ function TypedDataDefaultView({
               ) : null
             }
           />
-        ) : interpretQuery.isFetched ? (
+        ) : (
           <TypedDataRow ref={setTypedDataRow} data={typedDataFormatted} />
-        ) : null}
-        <HStack gap={8} style={{ gridTemplateColumns: '1fr 1fr' }}>
+        )}
+        <HStack
+          gap={8}
+          style={{
+            gridTemplateColumns: interpretation?.input ? '1fr 1fr' : '1fr',
+          }}
+        >
           <InterpretationState
             interpretation={interpretation}
             interpretQuery={interpretQuery}
           />
-          {typedDataFormatted ? (
+          {interpretation?.input ? (
             <Button kind="regular" onClick={onOpenAdvancedView} size={36}>
               Advanced View
             </Button>
@@ -396,7 +401,6 @@ function SignTypedDataContent({
   invariant(windowId, 'windowId get-parameter is required');
 
   const navigate = useNavigate();
-  const { networks } = useNetworks();
 
   const [allowanceQuantityBase, setAllowanceQuantityBase] = useState('');
 
@@ -421,30 +425,27 @@ function SignTypedDataContent({
     navigate(-1);
   };
 
-  const { data: chain, ...chainQuery } = useQuery({
+  const { data: chain } = useQuery({
     queryKey: ['requestChainForOrigin', origin],
     queryFn: () => requestChainForOrigin(origin),
     useErrorBoundary: true,
     suspense: true,
   });
 
+  const { networks } = useNetworks(chain ? [chain.toString()] : undefined);
+  const chainId = chain && networks ? networks.getChainId(chain) : null;
+
   const { data: interpretation, ...interpretQuery } = useQuery({
-    queryKey: [
-      'interpretSignature',
-      wallet.address,
-      chain,
-      networks,
-      typedData,
-    ],
+    queryKey: ['interpretSignature', wallet.address, chainId, typedData],
     queryFn: () =>
-      chain && networks
+      chainId
         ? interpretSignature({
             address: wallet.address,
-            chainId: networks.getChainId(chain),
+            chainId,
             typedData,
           })
         : null,
-    enabled: !chainQuery.isLoading && Boolean(networks),
+    enabled: Boolean(chainId),
     suspense: false,
     retry: 1,
     refetchOnMount: false,
@@ -465,7 +466,6 @@ function SignTypedDataContent({
   return (
     <Background backgroundKind="white">
       <NavigationTitle title={null} documentTitle="Sign Typed Data" />
-      <KeyboardShortcut combination="esc" onKeyDown={handleReject} />
       <PageColumn
         // different surface color on backgroundKind="white"
         style={{

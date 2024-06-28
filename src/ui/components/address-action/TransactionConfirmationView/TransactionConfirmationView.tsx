@@ -12,6 +12,7 @@ import { TransactionConfiguration } from 'src/ui/pages/SendTransaction/Transacti
 import { UIText } from 'src/ui/ui-kit/UIText';
 import LedgerIcon from 'jsx:src/ui/assets/ledger-icon.svg';
 import { isDeviceAccount } from 'src/shared/types/validators';
+import type { EligibilityQuery } from 'src/modules/ethereum/account-abstraction/shouldInterpretTransaction';
 import { WalletAvatar } from '../../WalletAvatar';
 import { WalletDisplayName } from '../../WalletDisplayName';
 import { TransactionSimulation } from '../TransactionSimulation';
@@ -19,17 +20,23 @@ import { TransactionSimulation } from '../TransactionSimulation';
 export function TransactionConfirmationView({
   title,
   wallet,
+  showApplicationLine,
   transaction,
   chain,
   configuration,
+  paymasterEligible,
+  eligibilityQuery,
   localAllowanceQuantityBase,
   onOpenAllowanceForm,
 }: {
   title: React.ReactNode;
   wallet: ExternallyOwnedAccount;
+  showApplicationLine: boolean;
   transaction: IncomingTransactionWithChainId;
   chain: Chain;
   configuration: CustomConfiguration;
+  paymasterEligible: boolean;
+  eligibilityQuery: EligibilityQuery;
   localAllowanceQuantityBase?: string;
   onOpenAllowanceForm?: () => void;
 }) {
@@ -65,10 +72,13 @@ export function TransactionConfirmationView({
         style={{ display: 'flex', flexDirection: 'column' }}
       >
         <TransactionSimulation
+          showApplicationLine={showApplicationLine}
           localAllowanceQuantityBase={localAllowanceQuantityBase}
           onOpenAllowanceForm={onOpenAllowanceForm}
           address={wallet.address}
           transaction={transaction}
+          paymasterEligible={paymasterEligible}
+          eligibilityQuery={eligibilityQuery}
         />
         <Spacer height={20} />
 
@@ -86,7 +96,7 @@ export function TransactionConfirmationView({
             configuration={configuration}
             onConfigurationChange={null}
             onFeeValueCommonReady={null}
-            paymasterEligible={false}
+            paymasterEligible={paymasterEligible}
           />
         </React.Suspense>
         <Spacer height={20} />

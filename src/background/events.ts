@@ -31,7 +31,10 @@ export const emitter = createNanoEvents<{
   chainsUpdated: () => void;
   chainChanged: (chain: Chain) => void;
   transactionSent: (
-    data: { transaction: TransactionResponse } & TransactionContextParams
+    data: {
+      transaction: TransactionResponse;
+      mode: 'default' | 'testnet';
+    } & TransactionContextParams
   ) => void;
   typedDataSigned: (
     data: { typedData: TypedData; address: string } & MessageContextParams
@@ -42,7 +45,12 @@ export const emitter = createNanoEvents<{
   userActivity: () => void;
   connectToSiteEvent: (info: { origin: string }) => void;
   sessionExpired: () => void;
-  dappConnection: (data: { origin: string; address: string }) => void;
+  requestAccountsResolved: (data: {
+    origin: string;
+    address: string;
+    /** {explicitly: true} means that user confirmed connection in a dialog. {false} means that we resolve a previously approved addess value */
+    explicitly: boolean;
+  }) => void;
   screenView: (data: ScreenViewParams) => void;
   firstScreenView: (timestamp: number) => void;
   daylightAction: (data: DaylightEventParams) => void;

@@ -24,9 +24,8 @@ import { ViewLoading } from 'src/ui/components/ViewLoading';
 import { NavigationTitle } from 'src/ui/components/NavigationTitle';
 import { PageStickyFooter } from 'src/ui/components/PageStickyFooter';
 import type { EthereumChainConfig } from 'src/modules/ethereum/chains/types';
-import { networksStore } from 'src/modules/networks/networks-store.client';
+import { getNetworksStore } from 'src/modules/networks/networks-store.client';
 import { Networks } from 'src/modules/networks/Networks';
-import { KeyboardShortcut } from 'src/ui/components/KeyboardShortcut';
 import { DelayedRender } from 'src/ui/components/DelayedRender';
 import { normalizeChainId } from 'src/shared/normalizeChainId';
 import { injectChainConfig } from 'src/modules/networks/injectChainConfig';
@@ -104,7 +103,8 @@ function AddOrUpdateChain({
           : null,
       };
     },
-    onSuccess: (result) => {
+    onSuccess: async (result) => {
+      const networksStore = await getNetworksStore();
       networksStore.update();
       onSuccess(result);
     },
@@ -268,7 +268,6 @@ export function AddEthereumChain() {
 
   return (
     <>
-      <KeyboardShortcut combination="esc" onKeyDown={handleReject} />
       <Routes>
         <Route
           path="/"
