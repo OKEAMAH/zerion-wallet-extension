@@ -3,7 +3,7 @@ import React, { useId, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import type { IncomingTransaction } from 'src/modules/ethereum/types/IncomingTransaction';
 import type { Chain } from 'src/modules/networks/Chain';
-import { useNetworks } from 'src/modules/networks/useNetworks';
+import { getNetworksStore } from 'src/modules/networks/networks-store.client';
 import { HStack } from 'src/ui/ui-kit/HStack';
 import { UIText } from 'src/ui/ui-kit/UIText';
 import { UnstyledButton } from 'src/ui/ui-kit/UnstyledButton';
@@ -139,22 +139,12 @@ export function NonceLine({
   userNonce: string | null;
   onChange: null | ((nonce: string | null) => void);
 }) {
-  const { networks, isLoading: networksAreLoading } = useNetworks([
-    chain.toString(),
-  ]);
   const { from } = transaction;
   const { data, isLoading, isError } = useQuery({
-    queryKey: [
-      'getTransactionCount',
-      networks,
-      from,
-      chain,
-      networksAreLoading,
-    ],
+    queryKey: ['getTransactionCount', from, chain],
     queryFn: async () => {
-      if (!networks || networksAreLoading) {
-        return;
-      }
+      const networksStore = await getNetworksStore();
+      const networks = await networksStore.load({ chains: [chain.toString()] });
       return uiGetBestKnownTransactionCount({
         address: from,
         chain,
@@ -163,7 +153,6 @@ export function NonceLine({
       });
     },
     useErrorBoundary: false,
-    enabled: Boolean(networks),
     suspense: true,
   });
   const dialogRef = useRef<HTMLDialogElementInterface | null>(null);

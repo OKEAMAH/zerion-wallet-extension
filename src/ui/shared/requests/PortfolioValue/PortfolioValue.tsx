@@ -1,19 +1,21 @@
-import { useAddressPortfolio } from 'defi-sdk';
+import { useAddressPortfolioDecomposition } from 'defi-sdk';
 import { useMemo } from 'react';
+import { useCurrency } from 'src/modules/currency/useCurrency';
 
 export function PortfolioValue({
   address: addressStr,
   render,
 }: {
   address: string;
-  render: (value: ReturnType<typeof useAddressPortfolio>) => JSX.Element;
+  render: (
+    value: ReturnType<typeof useAddressPortfolioDecomposition>
+  ) => JSX.Element;
 }) {
   const address = useMemo(() => addressStr.toLowerCase(), [addressStr]);
-  const query = useAddressPortfolio({
+  const { currency } = useCurrency();
+  const query = useAddressPortfolioDecomposition({
     address,
-    currency: 'usd',
-    portfolio_fields: 'all',
-    use_portfolio_service: true,
+    currency,
   });
   return render(query);
 }

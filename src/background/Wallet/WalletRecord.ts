@@ -9,7 +9,6 @@ import { normalizeAddress } from 'src/shared/normalizeAddress';
 import { getIndexFromPath } from 'src/shared/wallet/derivation-paths';
 import { NetworkId } from 'src/modules/networks/NetworkId';
 import type { WalletAbility } from 'src/shared/types/Daylight';
-import { NetworkSelectValue } from 'src/modules/networks/NetworkSelectValue';
 import {
   isEncryptedMnemonic,
   decryptMnemonic,
@@ -612,6 +611,11 @@ export class WalletRecordModel {
         'Removing last wallet from a Mnemonic group is not allowed. You can remove the whole group'
       );
     }
+    if (isHardwareContainer(group.walletContainer) && isLastAddress) {
+      throw new Error(
+        'Removing last wallet from a Hardware group is not allowed. You can remove the whole group'
+      );
+    }
     if (isLastAddress) {
       // remove whole group
       draft.walletManager.groups.splice(pos, 1);
@@ -772,6 +776,7 @@ export class WalletRecordModel {
       upgradeDnaBannerDismissed: false,
       backupReminderDismissedTime: 0,
       enableTestnets: false,
+      testnetMode: null,
     };
     if (!record) {
       return defaults;
@@ -787,23 +792,6 @@ export class WalletRecordModel {
     return produce(record, (draft) => {
       Object.assign(draft.publicPreferences, preferences);
     });
-  }
-
-  static verifyOverviewChain(
-    record: WalletRecord,
-    { availableChains }: { availableChains: Chain[] }
-  ) {
-    const { overviewChain } = record.publicPreferences;
-    if (
-      overviewChain &&
-      !availableChains.includes(createChain(overviewChain))
-    ) {
-      return produce(record, (draft) => {
-        draft.publicPreferences.overviewChain = NetworkSelectValue.All;
-      });
-    } else {
-      return record;
-    }
   }
 
   static updateLastBackedUp(

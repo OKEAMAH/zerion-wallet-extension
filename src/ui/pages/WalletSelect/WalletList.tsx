@@ -20,6 +20,7 @@ import { WalletSourceIcon } from 'src/ui/components/WalletSourceIcon';
 import { truncateAddress } from 'src/ui/shared/truncateAddress';
 import { WalletNameType } from 'src/ui/shared/useProfileName';
 import { CopyButton } from 'src/ui/components/CopyButton';
+import { useCurrency } from 'src/modules/currency/useCurrency';
 import * as styles from './styles.module.css';
 
 function WalletListItem({
@@ -37,6 +38,7 @@ function WalletListItem({
   isSelected: boolean;
 }) {
   const id = useId();
+  const { currency } = useCurrency();
   // colons are invalid for anchor-name CSS property
   const anchorName = `--button-slot-${id.replaceAll(':', '')}`;
   const COPY_BUTTON_SIZE = 20;
@@ -155,7 +157,7 @@ function WalletListItem({
                             display: 'inline-block',
                             width: COPY_BUTTON_SIZE,
                             height: COPY_BUTTON_SIZE,
-                            ['anchor-name' as string]: anchorName,
+                            ['anchorName' as string]: anchorName,
                             verticalAlign: 'bottom',
                           }}
                         ></span>
@@ -177,7 +179,7 @@ function WalletListItem({
                         parts={formatCurrencyToParts(
                           entry.value?.total_value || 0,
                           'en',
-                          'usd'
+                          currency
                         )}
                       />
                     ) : (

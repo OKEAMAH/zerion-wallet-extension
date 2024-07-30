@@ -1,6 +1,6 @@
 import browser from 'webextension-polyfill';
 import { ethers } from 'ethers';
-import { networksStore } from 'src/modules/networks/networks-store.background';
+import { mainNetworksStore } from 'src/modules/networks/networks-store.background';
 import { configureBackgroundClient } from 'src/modules/defi-sdk/background';
 import { SessionCacheService } from 'src/background/resource/sessionCacheService';
 import { openOnboarding } from 'src/shared/openOnboarding';
@@ -18,6 +18,7 @@ import type { RuntimePort } from './webapis/RuntimePort';
 import { emitter } from './events';
 import * as userActivity from './user-activity';
 import { ContentScriptManager } from './ContentScriptManager';
+import { TransactionService } from './transactions/TransactionService';
 
 Object.assign(globalThis, { ethers });
 
@@ -41,7 +42,7 @@ if (process.env.NODE_ENV === 'development') {
 }
 
 configureBackgroundClient();
-networksStore.load();
+mainNetworksStore.load();
 
 function isOnboardingContext(port: RuntimePort) {
   if (!port.sender?.url) {
@@ -114,6 +115,7 @@ userActivity.scheduleAlarms();
 // https://developer.chrome.com/docs/extensions/mv3/migrating_to_service_workers/#alarms
 browser.alarms.onAlarm.addListener(userActivity.handleAlarm);
 browser.alarms.onAlarm.addListener(ContentScriptManager.handleAlarm);
+browser.alarms.onAlarm.addListener(TransactionService.handleAlarm);
 
 console.time('bg initialize'); // eslint-disable-line no-console
 initialize().then((values) => {

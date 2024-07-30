@@ -14,6 +14,7 @@ import type { HTMLDialogElementInterface } from 'src/ui/ui-kit/ModalDialogs/HTML
 import type { Chain } from 'src/modules/networks/Chain';
 import type { IncomingTransactionWithFrom } from 'src/modules/ethereum/types/IncomingTransaction';
 import { useNetworks } from 'src/modules/networks/useNetworks';
+import { useCurrency } from 'src/modules/currency/useCurrency';
 import type { TransactionFee } from '../TransactionConfiguration/useTransactionFee';
 import { NetworkFeeDialog } from './NetworkFeeDialog';
 import { NETWORK_SPEED_TO_TITLE } from './constants';
@@ -56,6 +57,7 @@ export function NetworkFee({
   }) => React.ReactNode;
 }) {
   const { networks } = useNetworks();
+  const { currency } = useCurrency();
   const dialogRef = useRef<HTMLDialogElementInterface | null>(null);
   const { time, feeEstimation, feeEstimationQuery, costs, costsQuery } =
     transactionFee;
@@ -72,12 +74,11 @@ export function NetworkFee({
   const nativeAssetSymbol =
     networks?.getNetworkByName(chain)?.native_asset?.symbol;
 
-  const isOptimistic = feeEstimation?.type === 'optimistic';
   const disabled = isLoading || !onChange;
 
   const feeValuePrefix = totalValueExceedsBalance ? 'Up to ' : '';
   const feeValueFormatted = feeValueFiat
-    ? formatCurrencyValue(feeValueFiat, 'en', 'usd')
+    ? formatCurrencyValue(feeValueFiat, 'en', currency)
     : feeValueCommon
     ? formatTokenValue(feeValueCommon.toString(), nativeAssetSymbol)
     : undefined;
@@ -143,7 +144,7 @@ export function NetworkFee({
               className={disabled ? undefined : helperStyles.hoverUnderline}
               style={{
                 color: disabled ? 'var(--black)' : 'var(--primary)',
-                cursor: isOptimistic || !onChange ? 'auto' : undefined,
+                cursor: !onChange ? 'auto' : undefined,
               }}
               onClick={() => {
                 dialogRef.current?.showModal();

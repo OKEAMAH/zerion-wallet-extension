@@ -2,6 +2,7 @@ import type {
   AddressParams,
   AddressPosition,
   AddressPositionDappInfo,
+  PortfolioDecomposition,
 } from 'defi-sdk';
 import {
   useAddressPortfolioDecomposition,
@@ -62,6 +63,9 @@ import { invariant } from 'src/shared/invariant';
 import { SurfaceItemAnchor } from 'src/ui/ui-kit/SurfaceList';
 import { ErrorBoundary } from 'src/ui/components/ErrorBoundary';
 import { useStore } from '@store-unit/react';
+import { useDefiSdkClient } from 'src/modules/defi-sdk/useDefiSdkClient';
+import { usePreferences } from 'src/ui/features/preferences';
+import { useCurrency } from 'src/modules/currency/useCurrency';
 import {
   TAB_SELECTOR_HEIGHT,
   TAB_TOP_PADDING,
@@ -139,6 +143,7 @@ function AddressPositionItem({
   hasPreviosNestedPosition?: boolean;
   showGasIcon?: boolean;
 }) {
+  const { currency } = useCurrency();
   const isNested = Boolean(position.parent_id);
   const { networks } = useNetworks();
   const network = networks?.getNetworkByName(createChain(position.chain));
@@ -253,7 +258,7 @@ function AddressPositionItem({
         {position.value != null ? (
           <VStack gap={0} style={{ textAlign: 'right' }}>
             <UIText kind="body/regular">
-              {formatCurrencyValue(position.value, 'en', 'usd')}
+              {formatCurrencyValue(position.value, 'en', currency)}
             </UIText>
             {position.asset.price?.relative_change_24h ? (
               <UIText
@@ -269,7 +274,7 @@ function AddressPositionItem({
                 }${formatPercent(
                   Math.abs(position.asset.price.relative_change_24h),
                   'en'
-                )}% (${formatCurrencyValue(absoluteChange, 'en', 'usd')})`}
+                )}% (${formatCurrencyValue(absoluteChange, 'en', currency)})`}
               </UIText>
             ) : null}
           </VStack>
@@ -399,6 +404,8 @@ function ProtocolHeading({
   value: number;
   relativeValue: number;
 }) {
+  const { currency } = useCurrency();
+
   return (
     <HStack gap={8} alignItems="center">
       {dappInfo.id === DEFAULT_PROTOCOL_ID ? (
@@ -414,7 +421,7 @@ function ProtocolHeading({
       <UIText kind="body/accent">
         {dappInfo.name || dappInfo.id}
         {' · '}
-        <NeutralDecimals parts={formatCurrencyToParts(value, 'en', 'usd')} />
+        <NeutralDecimals parts={formatCurrencyToParts(value, 'en', currency)} />
       </UIText>
       <UIText
         inline={true}
@@ -458,6 +465,7 @@ function PositionList({
       }),
     []
   );
+  const { preferences } = usePreferences();
 
   const groupType = PositionsGroupType.platform;
   const preparedPositions = usePreparedPositions({
@@ -504,12 +512,26 @@ function PositionList({
           }
           let namePositionCounter = 0;
           for (const position of nameIndex[name]) {
+            const showAsLink = !preferences?.testnetMode?.on;
+            const itemContent = (
+              <AddressPositionItem
+                position={position}
+                groupType={groupType}
+                hasPreviosNestedPosition={
+                  namePositionCounter > 0 &&
+                  Boolean(nameIndex[name][namePositionCounter - 1].parent_id)
+                }
+                showGasIcon={preparedPositions.gasPositionId === position.id}
+              />
+            );
             items.push({
               key: position.id,
               separatorLeadingInset: position.parent_id ? 26 : 0,
-              pad: false,
-              style: { padding: 0 },
-              component: (
+              pad: !showAsLink,
+              style: showAsLink ? { padding: 0 } : undefined,
+              // NODE: Don't link to web in testnet mode
+              // TODO: remove this conditional when we have Asset Page in extension
+              component: showAsLink ? (
                 <SurfaceItemAnchor
                   href={`https://app.zerion.io/tokens/${
                     position.asset.symbol
@@ -519,20 +541,10 @@ function PositionList({
                   target="_blank"
                   decorationStyle={{ borderRadius: 16 }}
                 >
-                  <AddressPositionItem
-                    position={position}
-                    groupType={groupType}
-                    hasPreviosNestedPosition={
-                      namePositionCounter > 0 &&
-                      Boolean(
-                        nameIndex[name][namePositionCounter - 1].parent_id
-                      )
-                    }
-                    showGasIcon={
-                      preparedPositions.gasPositionId === position.id
-                    }
-                  />
+                  {itemContent}
                 </SurfaceItemAnchor>
+              ) : (
+                itemContent
               ),
             });
             namePositionCounter++;
@@ -616,6 +628,7 @@ function MultiChainPositions({
   onChainChange,
   renderEmptyView,
   renderLoadingView,
+  portfolioDecomposition,
   ...positionListProps
 }: {
   addressParams: AddressParams;
@@ -624,11 +637,13 @@ function MultiChainPositions({
   dappChain: string | null;
   filterChain: string | null;
   onChainChange: (value: string | null) => void;
+  portfolioDecomposition: PortfolioDecomposition | null;
 } & Omit<React.ComponentProps<typeof PositionList>, 'items'>) {
-  const { value, isLoading } = useAddressPositions({
-    ...addressParams,
-    currency: 'usd',
-  });
+  const { currency } = useCurrency();
+  const { value, isLoading } = useAddressPositions(
+    { ...addressParams, currency },
+    { client: useDefiSdkClient() }
+  );
 
   const chainValue = filterChain || dappChain || NetworkSelectValue.All;
 
@@ -653,6 +668,11 @@ function MultiChainPositions({
     return renderEmptyView() as JSX.Element;
   }
 
+  const chainTotalValue =
+    chainValue === NetworkSelectValue.All
+      ? portfolioDecomposition?.total_value
+      : portfolioDecomposition?.positions_chains_distribution[chainValue];
+
   return (
     <VStack gap={Object.keys(groupedPositions).length > 1 ? 16 : 8}>
       <div style={{ paddingInline: 16 }}>
@@ -661,13 +681,11 @@ function MultiChainPositions({
           filterChain={filterChain}
           onChange={onChainChange}
           value={
-            <NeutralDecimals
-              parts={formatCurrencyToParts(
-                getFullPositionsValue(items),
-                'en',
-                'usd'
-              )}
-            />
+            chainTotalValue ? (
+              <NeutralDecimals
+                parts={formatCurrencyToParts(chainTotalValue, 'en', currency)}
+              />
+            ) : null
           }
         />
       </div>
@@ -699,6 +717,7 @@ function RawChainPositions({
   filterChain: string | null;
   onChainChange: (value: string | null) => void;
 } & Omit<React.ComponentProps<typeof PositionList>, 'items'>) {
+  const { currency } = useCurrency();
   const addressParam =
     'address' in addressParams ? addressParams.address : address;
   invariant(
@@ -748,7 +767,7 @@ function RawChainPositions({
               parts={formatCurrencyToParts(
                 getFullPositionsValue(addressPositions),
                 'en',
-                'usd'
+                currency
               )}
             />
           }
@@ -773,6 +792,7 @@ export function Positions({
   filterChain: string | null;
   onChainChange: (value: string | null) => void;
 }) {
+  const { currency } = useCurrency();
   const { ready, params, singleAddressNormalized } = useAddressParams();
   const {
     value: portfolioDecomposition,
@@ -780,9 +800,9 @@ export function Positions({
   } = useAddressPortfolioDecomposition(
     {
       address: singleAddressNormalized,
-      currency: 'usd',
+      currency,
     },
-    { enabled: ready }
+    { enabled: ready, client: useDefiSdkClient() }
   );
   const chainValue = filterChain || dappChain || NetworkSelectValue.All;
   const chain =
@@ -805,7 +825,7 @@ export function Positions({
       <CenteredFillViewportView
         maxHeight={getGrownTabMaxHeight(offsetValuesState)}
       >
-        <DelayedRender delay={2000}>
+        <DelayedRender delay={500}>
           <ViewLoading kind="network" />
         </DelayedRender>
       </CenteredFillViewportView>
@@ -880,6 +900,7 @@ export function Positions({
         onChainChange={onChainChange}
         renderEmptyView={renderEmptyViewForNetwork}
         renderLoadingView={renderLoadingViewForNetwork}
+        portfolioDecomposition={portfolioDecomposition}
       />
     );
   } else {

@@ -21,6 +21,7 @@ import PremiumIcon from 'jsx:src/ui/assets/premium.svg';
 import DarkModeLampIcon from 'jsx:src/ui/assets/dark-mode-lamp.svg';
 import NetworksIcon from 'jsx:src/ui/assets/network.svg';
 import SecurityIcon from 'jsx:src/ui/assets/security.svg';
+import SettingsIcon from 'jsx:src/ui/assets/settings.svg';
 import ToolsIcon from 'jsx:src/ui/assets/hammer.svg';
 import { version } from 'src/shared/packageVersion';
 import { apostrophe, middot } from 'src/ui/shared/typography';
@@ -43,6 +44,7 @@ import { Spacer } from 'src/ui/ui-kit/Spacer';
 import { useBackgroundKind } from 'src/ui/components/Background';
 import { BackupFlowSettingsSection } from '../BackupWallet/BackupSettingsItem';
 import { Security } from '../Security';
+import { PreferencesPage } from './Preferences';
 
 function SettingsMain() {
   const { singleAddressNormalized } = useAddressParams();
@@ -108,6 +110,14 @@ function SettingsMain() {
                 <HStack gap={8} alignItems="center">
                   <DarkModeLampIcon />
                   <UIText kind="body/regular">Appearance</UIText>
+                </HStack>
+              </AngleRightRow>
+            </FrameListItemLink>
+            <FrameListItemLink to="/settings/preferences">
+              <AngleRightRow>
+                <HStack gap={8} alignItems="center">
+                  <SettingsIcon />
+                  <UIText kind="body/regular">Preferences</UIText>
                 </HStack>
               </AngleRightRow>
             </FrameListItemLink>
@@ -259,8 +269,6 @@ function DeveloperTools() {
               </span>
             }
           />
-        </Frame>
-        <Frame>
           <ToggleSettingLine
             text="Recognizable Connect Buttons"
             checked={globalPreferences?.recognizableConnectButtons || false}
@@ -279,11 +287,11 @@ function DeveloperTools() {
         </Frame>
         <Frame>
           <ToggleSettingLine
-            text="Enable Testnets"
-            checked={preferences?.enableTestnets || false}
+            text="Testnet Mode"
+            checked={Boolean(preferences?.testnetMode)}
             onChange={(event) => {
               setPreferences({
-                enableTestnets: event.target.checked,
+                testnetMode: event.target.checked ? { on: true } : null,
               });
             }}
             detailText="Enables viewing and interacting with test networks"
@@ -327,6 +335,14 @@ export function Settings() {
         element={
           <ViewSuspense>
             <Security />
+          </ViewSuspense>
+        }
+      />
+      <Route
+        path="/preferences/*"
+        element={
+          <ViewSuspense>
+            <PreferencesPage />
           </ViewSuspense>
         }
       />

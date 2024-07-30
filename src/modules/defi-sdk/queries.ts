@@ -1,5 +1,5 @@
 import type { AddressPosition, Asset } from 'defi-sdk';
-import { client } from 'defi-sdk';
+import { type Client, type client as clientType } from 'defi-sdk';
 import type { ResponseData as AssetsPricesReponseData } from 'defi-sdk/lib/domains/assetsPrices';
 import { backgroundCache } from 'src/modules/defi-sdk';
 import type { Chain } from 'src/modules/networks/Chain';
@@ -10,6 +10,7 @@ type NativeAssetQuery = {
   chain: Chain;
   id: string | null;
   address: string | null;
+  currency: string;
 };
 
 type NonNativeAssetQuery = {
@@ -17,6 +18,7 @@ type NonNativeAssetQuery = {
   chain: Chain;
   id?: undefined;
   address: string | null;
+  currency: string;
 };
 
 export type CachedAssetQuery = NativeAssetQuery | NonNativeAssetQuery;
@@ -62,25 +64,24 @@ function queryCacheForNativeAsset(address: string | null, chain: Chain) {
 }
 
 async function fetchAssetsPrices(
-  payload: Parameters<typeof client.assetsPrices>[0]
+  payload: Parameters<typeof clientType.assetsPrices>[0],
+  client: Client
 ) {
   return new Promise<AssetsPricesReponseData>((resolve) => {
     client.assetsPrices(payload, { onData: (data) => resolve(data.prices) });
   });
 }
 
-export async function fetchAssetFromCacheOrAPI({
-  address,
-  isNative,
-  chain,
-  id,
-}: CachedAssetQuery) {
+export async function fetchAssetFromCacheOrAPI(
+  { address, isNative, chain, id, currency }: CachedAssetQuery,
+  client: Client
+) {
   const requestAssetId = isNative ? id : normalizeNullableAddress(address);
   const assets = requestAssetId
-    ? await fetchAssetsPrices({
-        asset_codes: [requestAssetId || ''],
-        currency: 'usd',
-      })
+    ? await fetchAssetsPrices(
+        { asset_codes: [requestAssetId || ''], currency },
+        client
+      )
     : null;
 
   const getAssetFromCache = (

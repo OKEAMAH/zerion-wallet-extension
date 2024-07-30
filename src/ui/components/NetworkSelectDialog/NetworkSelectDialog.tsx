@@ -1,5 +1,6 @@
 import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { isTruthy } from 'is-truthy-ts';
+import type { Chain } from 'src/modules/networks/Chain';
 import { createChain } from 'src/modules/networks/Chain';
 import type { NetworkConfig } from 'src/modules/networks/NetworkConfig';
 import type { Networks } from 'src/modules/networks/Networks';
@@ -26,6 +27,10 @@ import { NetworkSelectValue } from 'src/modules/networks/NetworkSelectValue';
 import AllNetworksIcon from 'jsx:src/ui/assets/all-networks.svg';
 import { usePreferences } from 'src/ui/features/preferences/usePreferences';
 import { VirtualizedSurfaceList } from 'src/ui/ui-kit/SurfaceList/VirtualizedSurfaceList';
+import { useNativeBalance } from 'src/ui/shared/requests/useNativeBalance';
+import { formatTokenValue } from 'src/shared/units/formatTokenValue';
+import { useAddressParams } from 'src/ui/shared/user-address/useAddressParams';
+import { useCurrency } from 'src/modules/currency/useCurrency';
 import { DelayedRender } from '../DelayedRender';
 import { NetworkIcon } from '../NetworkIcon';
 import { PageBottom } from '../PageBottom';
@@ -39,6 +44,21 @@ import { AddNetworkLink } from './AddNetworkLink';
 import { useSearchKeyboardNavigation } from './useSearchKeyboardNavigation';
 import { NetworksEmptyView, ShowTestnetsHint } from './NetworksEmptyView';
 
+function NativeBalance({ address, chain }: { address: string; chain: Chain }) {
+  const TEN_MINUTES = 1000 * 60 * 10;
+  const { data: balance } = useNativeBalance({
+    address,
+    chain,
+    suspense: false,
+    staleTime: TEN_MINUTES,
+  });
+  if (balance?.valueCommon == null) {
+    return null;
+  }
+  const { valueCommon, position } = balance;
+  return <span>{formatTokenValue(valueCommon, position?.asset.symbol)}</span>;
+}
+
 function NetworkItem({
   index,
   name,
@@ -46,6 +66,7 @@ function NetworkItem({
   selected,
   icon,
   chainDistribution,
+  address,
 }: {
   index: number;
   name: string;
@@ -53,7 +74,14 @@ function NetworkItem({
   selected: boolean;
   icon: React.ReactElement;
   chainDistribution: ChainDistribution | null;
+  address?: string;
 }) {
+  const preferChainDistribution =
+    value === NetworkSelectValue.All ||
+    value in (chainDistribution?.chains || {});
+  const chain = value === NetworkSelectValue.All ? null : createChain(value);
+  const { currency } = useCurrency();
+
   return (
     <SurfaceItemButton
       data-class={LIST_ITEM_CLASS}
@@ -85,14 +113,14 @@ function NetworkItem({
           kind="small/regular"
           color={selected ? 'var(--primary)' : 'var(--neutral-500)'}
         >
-          {value === NetworkSelectValue.All ||
-          value in (chainDistribution?.chains || {}) ? (
+          {preferChainDistribution ? (
             <ChainValue
-              chain={
-                value === NetworkSelectValue.All ? value : createChain(value)
-              }
+              chain={chain || NetworkSelectValue.All}
               chainDistribution={chainDistribution}
+              currency={currency}
             />
+          ) : address && chain ? (
+            <NativeBalance address={address} chain={chain} />
           ) : null}
         </UIText>
       </HStack>
@@ -117,6 +145,7 @@ function NetworkList({
   previousListLength?: number;
   showAllNetworksOption?: boolean;
 }) {
+  const { singleAddress } = useAddressParams();
   const items = [
     title
       ? {
@@ -157,6 +186,7 @@ function NetworkList({
         }
       : null,
     ...networkList.map((network, index) => {
+      const chain = createChain(network.id);
       return {
         key: network.id,
         isInteractive: true,
@@ -164,7 +194,7 @@ function NetworkList({
         component: (
           <NetworkItem
             index={previousListLength + index + (showAllNetworksOption ? 1 : 0)}
-            name={networks.getChainName(createChain(network.id))}
+            name={networks.getChainName(chain)}
             value={network.id}
             icon={
               <NetworkIcon
@@ -175,6 +205,7 @@ function NetworkList({
             }
             chainDistribution={chainDistribution}
             selected={network.id === value}
+            address={singleAddress}
           />
         ),
       };
@@ -262,27 +293,27 @@ function SearchView({
   value,
   query,
   chainDistribution,
-  showTestnets,
+  testnetMode,
   filterPredicate,
 }: {
   value: string;
   query: string;
   chainDistribution: ChainDistribution | null;
-  showTestnets: boolean;
+  testnetMode: boolean;
   filterPredicate: (network: NetworkConfig) => boolean;
 }) {
   const { networks, isLoading } = useSearchNetworks({ query });
   const items = useMemo(() => {
-    const allNetworks = showTestnets
+    const allNetworks = testnetMode
       ? networks?.getNetworks().filter(filterPredicate)
       : networks?.getMainnets().filter(filterPredicate);
     return allNetworks?.filter(filterNetworksByQuery(query));
-  }, [filterPredicate, query, networks, showTestnets]);
+  }, [filterPredicate, query, networks, testnetMode]);
   if (isLoading) {
     return <ViewLoading kind="network" />;
   }
   if (!items?.length) {
-    return <NetworksEmptyView showTestnets={showTestnets} />;
+    return <NetworksEmptyView testnetMode={testnetMode} />;
   }
 
   return (
@@ -306,7 +337,7 @@ function SearchView({
         <Spacer height={8} />
         <AddNetworkLink />
       </div>
-      {showTestnets ? null : (
+      {testnetMode ? null : (
         <>
           <Spacer height={8} />
           <ShowTestnetsHint />
@@ -321,14 +352,14 @@ function AddressNetworkList({
   networks,
   chainDistribution,
   filterPredicate,
-  showTestnets,
+  testnetMode,
   showAllNetworksOption,
 }: {
   value: string;
   networks: Networks;
   chainDistribution: ChainDistribution | null;
   filterPredicate: (network: NetworkConfig) => boolean;
-  showTestnets: boolean;
+  testnetMode: boolean;
   showAllNetworksOption?: boolean;
 }) {
   const searchRef = useRef<HTMLInputElement | null>(null);
@@ -343,11 +374,11 @@ function AddressNetworkList({
     return createGroups({
       networks,
       chainDistribution,
-      showTestnets,
+      testnetMode,
       filterPredicate,
       sortMainNetworksType: 'by_distribution',
     });
-  }, [filterPredicate, networks, chainDistribution, showTestnets]);
+  }, [filterPredicate, networks, chainDistribution, testnetMode]);
 
   const {
     selectNext: selectNextNetwork,
@@ -426,7 +457,7 @@ function AddressNetworkList({
             query={query}
             filterPredicate={filterPredicate}
             chainDistribution={chainDistribution}
-            showTestnets={showTestnets}
+            testnetMode={testnetMode}
           />
         ) : (
           <SectionView
@@ -482,7 +513,7 @@ export function NetworkSelectDialog({
         networks={networks}
         chainDistribution={chainDistribution}
         showAllNetworksOption={showAllNetworksOption}
-        showTestnets={Boolean(preferences?.enableTestnets)}
+        testnetMode={Boolean(preferences?.testnetMode?.on)}
       />
     </div>
   );

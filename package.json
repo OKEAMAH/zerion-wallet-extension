@@ -1,6 +1,6 @@
 {
   "name": "zerion-wallet",
-  "version": "1.6.1",
+  "version": "1.9.1",
   "description": "A web3 wallet extension",
   "scripts": {
     "prestart": "node scripts/verifyDotEnv.cjs",
@@ -41,7 +41,7 @@
     "Wallet"
   ],
   "author": "everdimension <everdimension@gmail.com>",
-  "license": "ISC",
+  "license": "GPL-3.0-only",
   "bugs": {
     "url": "https://github.com/zeriontech/zerion-wallet-extension/issues"
   },
@@ -100,14 +100,14 @@
     "@walletconnect/jsonrpc-utils": "^1.0.8",
     "@zeriontech/components": "^1.0.3",
     "@zeriontech/hardware-wallet-connection": "^1.0.11",
-    "@zeriontech/transactions": "^0.0.14",
+    "@zeriontech/transactions": "^0.0.16",
     "bignumber.js": "^9.1.1",
     "buffer": "^6.0.3",
     "canvas-confetti": "^1.6.0",
     "capitalize-ts": "^1.0.0",
     "classnames": "^2.3.2",
     "dayjs": "^1.11.9",
-    "defi-sdk": "^0.1.0-alpha.76",
+    "defi-sdk": "^0.1.4",
     "downshift": "^7.6.0",
     "ethers": "^5.7.2",
     "events": "^3.3.0",

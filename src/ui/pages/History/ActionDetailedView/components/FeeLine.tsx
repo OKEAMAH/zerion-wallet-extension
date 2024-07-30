@@ -1,5 +1,6 @@
 import type { AddressAction } from 'defi-sdk';
 import React from 'react';
+import { useCurrency } from 'src/modules/currency/useCurrency';
 import { createChain } from 'src/modules/networks/Chain';
 import { NetworkId } from 'src/modules/networks/NetworkId';
 import type { Networks } from 'src/modules/networks/Networks';
@@ -19,7 +20,8 @@ export function FeeLine({
   address?: string;
   networks: Networks;
 }) {
-  const { fee, chain } = action.transaction;
+  const { fee, chain, sponsored } = action.transaction;
+  const { currency } = useCurrency();
 
   const feeEth = baseToCommon(
     fee?.quantity || 0,
@@ -30,7 +32,8 @@ export function FeeLine({
     createChain(chain || NetworkId.Ethereum)
   )?.native_asset;
 
-  if (!fee || !nativeAsset) {
+  const noFeeData = !sponsored && !fee;
+  if (noFeeData || !nativeAsset) {
     return null;
   }
 
@@ -41,24 +44,36 @@ export function FeeLine({
       justifyContent="space-between"
       style={{ gridTemplateColumns: 'auto 1fr' }}
     >
-      <UIText kind="small/regular">Fee</UIText>
+      <UIText kind="small/regular">Network Fee</UIText>
       <UIText kind="small/accent" style={{ justifySelf: 'end' }}>
-        <HStack gap={4}>
-          <span>{formatTokenValue(feeEth, '')}</span>
-          {nativeAsset.id ? (
-            <AssetLink
-              asset={{
-                asset_code: nativeAsset.id,
-                name: nativeAsset.name,
-                symbol: nativeAsset.symbol,
-              }}
-              address={address}
-            />
-          ) : (
-            nativeAsset.symbol?.toUpperCase()
-          )}
-          <span>({formatCurrencyValue(feeCurrency, 'en', 'usd')})</span>
-        </HStack>
+        {sponsored ? (
+          <div
+            style={{
+              background: 'linear-gradient(90deg, #6C6CF9 0%, #FF7583 100%)',
+              WebkitBackgroundClip: 'text',
+              WebkitTextFillColor: 'transparent',
+            }}
+          >
+            Free
+          </div>
+        ) : (
+          <HStack gap={4}>
+            <span>{formatTokenValue(feeEth, '')}</span>
+            {nativeAsset.id ? (
+              <AssetLink
+                asset={{
+                  asset_code: nativeAsset.id,
+                  name: nativeAsset.name,
+                  symbol: nativeAsset.symbol,
+                }}
+                address={address}
+              />
+            ) : (
+              nativeAsset.symbol?.toUpperCase()
+            )}
+            <span>({formatCurrencyValue(feeCurrency, 'en', currency)})</span>
+          </HStack>
+        )}
       </UIText>
     </HStack>
   );

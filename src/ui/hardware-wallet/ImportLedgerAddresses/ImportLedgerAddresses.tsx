@@ -27,6 +27,14 @@ import type { DeviceConnection } from '../types';
 
 type ControllerRequest = Omit<RpcRequest, 'id'>;
 
+// We don't have access to preference-store inside iframe and can't use useCurrency hook
+function getIframeCurrency() {
+  const pageUrl = new URL(window.location.href);
+  const currencyStateParam = pageUrl.searchParams.get('currency');
+  invariant(currencyStateParam, 'currency param is requred');
+  return currencyStateParam;
+}
+
 function WalletMediaPresentation({
   wallet,
   walletInfo,
@@ -34,6 +42,8 @@ function WalletMediaPresentation({
   wallet: ExternallyOwnedAccount;
   walletInfo?: WalletInfo;
 }) {
+  const currency = useMemo(getIframeCurrency, []);
+
   return (
     <Media
       image={
@@ -54,7 +64,7 @@ function WalletMediaPresentation({
               parts={formatCurrencyToParts(
                 walletInfo?.portfolio ?? 0,
                 'en',
-                'usd'
+                currency
               )}
             />
           ) : (

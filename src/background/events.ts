@@ -7,6 +7,7 @@ import type {
   TransactionContextParams,
 } from 'src/shared/types/SignatureContextParams';
 import type { AddEthereumChainParameter } from 'src/modules/ethereum/types/AddEthereumChainParameter';
+import type { ChainId } from 'src/modules/ethereum/transactions/ChainId';
 import type { State as GlobalPreferencesState } from './Wallet/GlobalPreferences';
 import type { WalletOrigin } from './Wallet/model/WalletOrigin';
 import type { WalletContainer } from './Wallet/model/types';
@@ -29,9 +30,14 @@ export interface DaylightEventParams {
 export const emitter = createNanoEvents<{
   accountsChanged: () => void;
   chainsUpdated: () => void;
-  chainChanged: (chain: Chain) => void;
+  chainChanged: (chain: Chain, origin: string) => void;
+  'ui:chainSelected': (chain: Chain) => void;
+  switchChainError: (chainId: ChainId, origin: string, error: unknown) => void;
   transactionSent: (
-    data: { transaction: TransactionResponse } & TransactionContextParams
+    data: {
+      transaction: TransactionResponse;
+      mode: 'default' | 'testnet';
+    } & TransactionContextParams
   ) => void;
   typedDataSigned: (
     data: { typedData: TypedData; address: string } & MessageContextParams
@@ -42,7 +48,12 @@ export const emitter = createNanoEvents<{
   userActivity: () => void;
   connectToSiteEvent: (info: { origin: string }) => void;
   sessionExpired: () => void;
-  dappConnection: (data: { origin: string; address: string }) => void;
+  requestAccountsResolved: (data: {
+    origin: string;
+    address: string;
+    /** {explicitly: true} means that user confirmed connection in a dialog. {false} means that we resolve a previously approved addess value */
+    explicitly: boolean;
+  }) => void;
   screenView: (data: ScreenViewParams) => void;
   firstScreenView: (timestamp: number) => void;
   daylightAction: (data: DaylightEventParams) => void;

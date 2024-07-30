@@ -1,7 +1,8 @@
-import { type Asset, useAssetsPrices, client } from 'defi-sdk';
+import { type Asset, useAssetsPrices } from 'defi-sdk';
 import { isTruthy } from 'is-truthy-ts';
+import { useCurrency } from 'src/modules/currency/useCurrency';
 import type { Chain } from 'src/modules/networks/Chain';
-import { networksStore } from 'src/modules/networks/networks-store.client';
+import { getNetworksStore } from 'src/modules/networks/networks-store.client';
 import { useNetworks } from 'src/modules/networks/useNetworks';
 import { rejectAfterDelay } from 'src/shared/rejectAfterDelay';
 
@@ -12,7 +13,9 @@ export async function getNativeAsset({
   chain: Chain;
   currency: string;
 }): Promise<Asset | null> {
-  const networks = await networksStore.load([chain.toString()]);
+  const networksStore = await getNetworksStore();
+  const { client } = networksStore;
+  const networks = await networksStore.load({ chains: [chain.toString()] });
   const id = networks?.getNetworkByName(chain)?.native_asset?.id;
   if (!id) {
     return null;
@@ -44,10 +47,11 @@ export function useNativeAssetId(chain: Chain) {
 
 export function useNativeAsset(chain: Chain) {
   const id = useNativeAssetId(chain);
+  const { currency } = useCurrency();
   const entry = useAssetsPrices(
     {
       asset_codes: [id].filter(isTruthy),
-      currency: 'usd',
+      currency,
     },
     { enabled: Boolean(id) }
   );

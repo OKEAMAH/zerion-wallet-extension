@@ -3,6 +3,7 @@ import { DnaService } from 'src/modules/dna-service/dna.background';
 import { initialize as initializeAnalytics } from 'src/shared/analytics/analytics.background';
 import { initialize as initializeRemoteConfig } from 'src/modules/remote-config';
 import { initialize as initializeLiteweightChainSupport } from './requests/liteweight-chain-support';
+import { InDappNotificationService } from './in-dapp-notifications';
 import { Account, AccountPublicRPC } from './account/Account';
 import { transactionService } from './transactions/TransactionService';
 import { globalPreferences } from './Wallet/GlobalPreferences';
@@ -32,13 +33,20 @@ export async function initialize() {
   const accountPublicRPC = new AccountPublicRPC(account);
   const dnaService = new DnaService();
   dnaService.initialize();
-  await transactionService.initialize();
+  await transactionService.initialize({
+    getWallet: () => account.getCurrentWallet(),
+  });
   initializeRemoteConfig().then(() => {
     globalPreferences.initialize();
     setUninstallURL();
   });
   initializeAnalytics({ account });
   initializeLiteweightChainSupport(account);
+
+  const inDappNotificationService = new InDappNotificationService({
+    getWallet: () => account.getCurrentWallet(),
+  });
+  inDappNotificationService.initialize();
 
   Object.assign(globalThis, {
     account,

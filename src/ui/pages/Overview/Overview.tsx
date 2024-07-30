@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Route, Routes, useLocation } from 'react-router-dom';
-import { useAddressPortfolio } from 'defi-sdk';
+import { useAddressPortfolioDecomposition } from 'defi-sdk';
 import { RenderArea } from 'react-area';
 import { UIText } from 'src/ui/ui-kit/UIText';
 import { PageColumn } from 'src/ui/components/PageColumn';
@@ -31,10 +31,7 @@ import { PageFullBleedColumn } from 'src/ui/components/PageFullBleedColumn';
 import { CopyButton } from 'src/ui/components/CopyButton';
 import { ViewLoading } from 'src/ui/components/ViewLoading';
 import { VStack } from 'src/ui/ui-kit/VStack';
-import {
-  DelayedRender,
-  useRenderDelay,
-} from 'src/ui/components/DelayedRender/DelayedRender';
+import { DelayedRender } from 'src/ui/components/DelayedRender/DelayedRender';
 import { useBodyStyle } from 'src/ui/components/Background/Background';
 import { useProfileName } from 'src/ui/shared/useProfileName';
 import { CenteredFillViewportView } from 'src/ui/components/FillView/FillView';
@@ -49,6 +46,8 @@ import { useStore } from '@store-unit/react';
 import { TextLink } from 'src/ui/ui-kit/TextLink';
 import { getWalletGroupByAddress } from 'src/ui/shared/requests/getWalletGroupByAddress';
 import { isReadonlyContainer } from 'src/shared/types/validators';
+import { useDefiSdkClient } from 'src/modules/defi-sdk/useDefiSdkClient';
+import { useCurrency } from 'src/modules/currency/useCurrency';
 import { HistoryList } from '../History/History';
 import { SettingsLinkIcon } from '../Settings/SettingsLinkIcon';
 import { WalletAvatar } from '../../components/WalletAvatar';
@@ -125,17 +124,12 @@ function CurrentAccountControls() {
     queryKey: ['wallet/uiGetCurrentWallet'],
     queryFn: () => walletPort.request('uiGetCurrentWallet'),
   });
-  const visible = useRenderDelay(16);
   if (!ready || !wallet) {
     return null;
   }
   const addressToCopy = wallet.address || singleAddress;
   return (
-    <HStack
-      gap={0}
-      alignItems="center"
-      style={{ visibility: visible ? 'visible' : 'hidden' }}
-    >
+    <HStack gap={0} alignItems="center">
       <Button
         kind="text-primary"
         size={40}
@@ -235,6 +229,7 @@ function OverviewComponent() {
   useBodyStyle(
     useMemo(() => ({ ['--background' as string]: 'var(--z-index-0)' }), [])
   );
+  const { currency } = useCurrency();
   const location = useLocation();
   const { singleAddress, params, ready, singleAddressNormalized } =
     useAddressParams();
@@ -246,15 +241,14 @@ function OverviewComponent() {
   const isReadonlyGroup =
     walletGroup && isReadonlyContainer(walletGroup.walletContainer);
   const [filterChain, setFilterChain] = useState<string | null>(null);
-  const { value, isLoading: isLoadingPortfolio } = useAddressPortfolio(
-    {
-      ...params,
-      currency: 'usd',
-      portfolio_fields: 'all',
-      use_portfolio_service: true,
-    },
-    { enabled: ready }
-  );
+  const { value, isLoading: isLoadingPortfolio } =
+    useAddressPortfolioDecomposition(
+      {
+        ...params,
+        currency,
+      },
+      { enabled: ready, client: useDefiSdkClient() }
+    );
 
   const offsetValuesState = useStore(offsetValues);
 
@@ -365,15 +359,19 @@ function OverviewComponent() {
             <UIText kind="headline/h1">
               {value?.total_value != null ? (
                 <NeutralDecimals
-                  parts={formatCurrencyToParts(value.total_value, 'en', 'usd')}
+                  parts={formatCurrencyToParts(
+                    value.total_value,
+                    'en',
+                    currency
+                  )}
                 />
               ) : (
                 NBSP
               )}
             </UIText>
-            {value?.relative_change_24h ? (
+            {value?.change_24h.relative ? (
               <PercentChange
-                value={value.relative_change_24h}
+                value={value.change_24h.relative}
                 locale="en"
                 render={(change) => {
                   const sign = change.isPositive ? '+' : '';
@@ -387,11 +385,11 @@ function OverviewComponent() {
                       }
                     >
                       {`${sign}${change.formatted}`}{' '}
-                      {value?.absolute_change_24h
+                      {value?.change_24h.absolute
                         ? `(${formatCurrencyValue(
-                            Math.abs(value.absolute_change_24h),
+                            Math.abs(value.change_24h.absolute),
                             'en',
-                            'usd'
+                            currency
                           )})`
                         : ''}{' '}
                       Today

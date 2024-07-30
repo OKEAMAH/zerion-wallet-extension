@@ -1,4 +1,4 @@
-import { client } from 'defi-sdk';
+import { type Client, client as defaultClient } from 'defi-sdk';
 import { rejectAfterDelay } from 'src/shared/rejectAfterDelay';
 import { valueToHex } from 'src/shared/units/valueToHex';
 import type { TypedData } from '../message-signing/TypedData';
@@ -11,10 +11,14 @@ export function interpretTransaction({
   address,
   transaction,
   origin,
+  client = defaultClient,
+  currency,
 }: {
   address: string;
   transaction: IncomingTransactionWithChainId;
   origin: string;
+  client?: Client;
+  currency: string;
 }): Promise<InterpretResponse> {
   const gas = getGas(transaction);
   return Promise.race([
@@ -34,7 +38,7 @@ export function interpretTransaction({
           payload: {
             address,
             chain_id: transaction.chainId,
-            currency: 'usd',
+            currency,
             transaction: {
               from: transaction.from,
               to: transaction.to,
@@ -69,10 +73,14 @@ export function interpretSignature({
   address,
   chainId,
   typedData,
+  client = defaultClient,
+  currency,
 }: {
   address: string;
   chainId?: ChainId | null;
   typedData: TypedData;
+  client?: Client;
+  currency: string;
 }): Promise<InterpretResponse> {
   return Promise.race([
     rejectAfterDelay(10000, 'interpret signature'),
@@ -91,7 +99,7 @@ export function interpretSignature({
           payload: {
             address,
             chain_id: chainId,
-            currency: 'usd',
+            currency,
             typed_data: typedData,
           },
         },

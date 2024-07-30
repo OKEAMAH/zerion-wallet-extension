@@ -24,9 +24,8 @@ import { ViewLoading } from 'src/ui/components/ViewLoading';
 import { NavigationTitle } from 'src/ui/components/NavigationTitle';
 import { PageStickyFooter } from 'src/ui/components/PageStickyFooter';
 import type { EthereumChainConfig } from 'src/modules/ethereum/chains/types';
-import { networksStore } from 'src/modules/networks/networks-store.client';
+import { getNetworksStore } from 'src/modules/networks/networks-store.client';
 import { Networks } from 'src/modules/networks/Networks';
-import { KeyboardShortcut } from 'src/ui/components/KeyboardShortcut';
 import { DelayedRender } from 'src/ui/components/DelayedRender';
 import { normalizeChainId } from 'src/shared/normalizeChainId';
 import { injectChainConfig } from 'src/modules/networks/injectChainConfig';
@@ -44,11 +43,13 @@ interface AddChainResult {
 function AddOrUpdateChain({
   origin,
   addEthereumChainParameterStringified,
+  onKeepCurrent,
   onReject,
   onSuccess,
 }: {
   origin: string;
   addEthereumChainParameterStringified: string;
+  onKeepCurrent: () => void;
   onReject: () => void;
   onSuccess: (value: AddChainResult) => void;
 }) {
@@ -104,7 +105,8 @@ function AddOrUpdateChain({
           : null,
       };
     },
-    onSuccess: (result) => {
+    onSuccess: async (result) => {
+      const networksStore = await getNetworksStore();
       networksStore.update();
       onSuccess(result);
     },
@@ -163,7 +165,7 @@ function AddOrUpdateChain({
             prevNetwork={prevNetwork}
             rpcUrlHelpHref={`/addEthereumChain/what-is-rpc-url?${params}`}
             isSubmitting={addEthereumChainMutation.isLoading}
-            onCancel={onReject}
+            onKeepCurrent={onKeepCurrent}
             onSubmit={(networkId, result) => {
               addEthereumChainMutation.mutate({
                 networkId,
@@ -244,6 +246,7 @@ function AddEthereumChainContent({
         addEthereumChainParameterStringified
       }
       origin={origin}
+      onKeepCurrent={onDone}
       onReject={onReject}
       onSuccess={(result) => setResult(result)}
     />
@@ -261,6 +264,7 @@ export function AddEthereumChain() {
     addEthereumChainParameter,
     'addEtheretumChainParameter get-parameter is required for this view'
   );
+
   const handleReject = useCallback(
     () => windowPort.reject(windowId),
     [windowId]
@@ -268,7 +272,6 @@ export function AddEthereumChain() {
 
   return (
     <>
-      <KeyboardShortcut combination="esc" onKeyDown={handleReject} />
       <Routes>
         <Route
           path="/"

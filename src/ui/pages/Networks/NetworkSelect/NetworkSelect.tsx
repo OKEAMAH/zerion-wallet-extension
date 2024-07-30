@@ -19,6 +19,15 @@ import { useNetworks } from 'src/modules/networks/useNetworks';
 import type { NetworkConfig } from 'src/modules/networks/NetworkConfig';
 import type { Networks } from 'src/modules/networks/Networks';
 import { Spacer } from 'src/ui/ui-kit/Spacer';
+import { useDefiSdkClient } from 'src/modules/defi-sdk/useDefiSdkClient';
+import { useCurrency } from 'src/modules/currency/useCurrency';
+import { walletPort } from 'src/ui/shared/channels';
+import { getNetworksStore } from 'src/modules/networks/networks-store.client';
+
+async function updateNetworks() {
+  const networksStore = await getNetworksStore();
+  return networksStore.update();
+}
 
 export function NetworkSelect({
   value,
@@ -41,17 +50,24 @@ export function NetworkSelect({
   showAllNetworksOption?: boolean;
 }) {
   const { params } = useAddressParams();
-  const { value: portfolioDecomposition } = useAddressPortfolioDecomposition({
-    ...params,
-    currency: 'usd',
-  });
+  const { currency } = useCurrency();
+  const { value: portfolioDecomposition } = useAddressPortfolioDecomposition(
+    { ...params, currency },
+    { client: useDefiSdkClient() }
+  );
   const dialogRef = useRef<HTMLDialogElementInterface | null>(null);
 
   function handleDialogOpen() {
     invariant(dialogRef.current, 'Dialog element not found');
-    showConfirmDialog(dialogRef.current).then((chain) =>
-      onChange(chain === 'all' ? NetworkSelectValue.All : chain)
-    );
+    showConfirmDialog(dialogRef.current).then(async (chain) => {
+      if (chain !== 'all') {
+        // TODO: should we combine these calls?
+        await walletPort.request('uiChainSelected', { chain });
+        await walletPort.request('addVisitedEthereumChain', { chain });
+        await updateNetworks();
+      }
+      onChange(chain === 'all' ? NetworkSelectValue.All : chain);
+    });
   }
 
   const chain = value === NetworkSelectValue.All ? null : createChain(value);

@@ -2,6 +2,7 @@ import React, {
   useCallback,
   useEffect,
   useId,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -9,10 +10,10 @@ import React, {
 import { useNavigate } from 'react-router-dom';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import type { Store } from 'store-unit';
-import { client, useAddressPortfolioDecomposition } from 'defi-sdk';
+import { useAddressPortfolioDecomposition } from 'defi-sdk';
 import { useSendForm } from '@zeriontech/transactions';
 import { useAddressParams } from 'src/ui/shared/user-address/useAddressParams';
-import { networksStore } from 'src/modules/networks/networks-store.client';
+import { getNetworksStore } from 'src/modules/networks/networks-store.client';
 import { PageColumn } from 'src/ui/components/PageColumn';
 import { PageTop } from 'src/ui/components/PageTop';
 import {
@@ -52,6 +53,15 @@ import { useSizeStore } from 'src/ui/Onboarding/useSizeStore';
 import { createSendAddressAction } from 'src/modules/ethereum/transactions/addressAction';
 import { HiddenValidationInput } from 'src/ui/shared/forms/HiddenValidationInput';
 import { DelayedRender } from 'src/ui/components/DelayedRender';
+import { isCustomNetworkId } from 'src/modules/ethereum/chains/helpers';
+import { ZerionAPI } from 'src/modules/zerion-api/zerion-api';
+import { FEATURE_PAYMASTER_ENABLED } from 'src/env/config';
+import { uiGetBestKnownTransactionCount } from 'src/modules/ethereum/transactions/getBestKnownTransactionCount/uiGetBestKnownTransactionCount';
+import { fetchAndAssignPaymaster } from 'src/modules/ethereum/account-abstraction/fetchAndAssignPaymaster';
+import { useDefiSdkClient } from 'src/modules/defi-sdk/useDefiSdkClient';
+import { DisableTestnetShortcuts } from 'src/ui/features/testnet-mode/DisableTestnetShortcuts';
+import { isDeviceAccount } from 'src/shared/types/validators';
+import { useCurrency } from 'src/modules/currency/useCurrency';
 import {
   DEFAULT_CONFIGURATION,
   applyConfiguration,
@@ -86,13 +96,16 @@ const rootNode = getRootDomNode();
 
 const ENABLE_NFT_TRANSFER = true;
 
-export function SendForm() {
+function SendFormComponent() {
   const { singleAddress: address, ready } = useAddressParams();
+  const { currency } = useCurrency();
   const { data: wallet } = useQuery({
     queryKey: ['wallet/uiGetCurrentWallet'],
     queryFn: () => walletPort.request('uiGetCurrentWallet'),
     useErrorBoundary: true,
   });
+  const isDeviceWallet = wallet && isDeviceAccount(wallet);
+  const USE_PAYMASTER_FEATURE = FEATURE_PAYMASTER_ENABLED && !isDeviceWallet;
 
   useBackgroundKind({ kind: 'white' });
 
@@ -103,17 +116,14 @@ export function SendForm() {
 
   const { data: positions } = useAddressBackendOrEvmPositions({
     address,
-    currency: 'usd',
+    currency,
     chain: chainForAddressPositions
       ? createChain(chainForAddressPositions)
       : null,
   });
 
   const { value: portfolioDecomposition } = useAddressPortfolioDecomposition(
-    {
-      address,
-      currency: 'usd',
-    },
+    { address, currency },
     { enabled: ready }
   );
   const addressChains = useMemo(
@@ -122,12 +132,17 @@ export function SendForm() {
   );
   const { networks } = useNetworks(addressChains);
 
+  const client = useDefiSdkClient();
+
   const sendView = useSendForm({
-    currencyCode: 'usd',
+    currencyCode: currency,
     DEFAULT_CONFIGURATION,
     address,
     positions: positions || undefined,
-    getNetworks: () => networksStore.load(addressChains),
+    getNetworks: async () => {
+      const networksStore = await getNetworksStore();
+      return networksStore.load({ chains: addressChains });
+    },
     client,
   });
   const { tokenItem, nftItem, store } = sendView;
@@ -137,10 +152,12 @@ export function SendForm() {
     'nftChain',
   ]);
 
-  useEffect(() => {
-    // TODO: update useSendForm to calculate default nft chain (using NFT Portfolio Decomposition)
-    store.setDefault('nftChain', 'ethereum');
-  }, [store]);
+  const { nonce: userNonce } = useSelectorStore(store.configuration, ['nonce']);
+
+  // we sync tokenChain and nftChain in the interface + nftChain should not be presented in the URL for now
+  useLayoutEffect(() => {
+    store.setDefault('nftChain', tokenChain);
+  }, [store, tokenChain]);
 
   useEffect(() => {
     store.on('change', () => {
@@ -176,50 +193,114 @@ export function SendForm() {
 
   const configureTransactionToBeSigned = useEvent(async () => {
     const asset = tokenItem?.asset;
-    const { type, to, tokenChain, tokenValue, nftChain, nftAmount } =
-      store.getState();
-    if (type === 'token') {
-      invariant(
-        address && to && asset && tokenChain && tokenValue,
-        'Send Form parameters missing'
-      );
-      const result = await sendView.store.createSendTransaction({
-        from: address,
-        to,
-        asset,
-        tokenChain,
-        tokenValue,
-      });
-      result.transaction = applyConfiguration(
-        result.transaction,
-        sendView.store.configuration.getState(),
-        gasPrices
-      );
-      return result;
-    } else if (type === 'nft') {
-      invariant(
-        nftChain && nftItem && nftAmount && to,
-        'Missing sendForm/createSendNFTTransaction params'
-      );
-      const result = await store.createSendNFTTransaction({
-        from: address,
-        to,
-        nftChain,
-        nftAmount,
-        nftItem,
-      });
-      result.transaction = applyConfiguration(
-        result.transaction,
-        sendView.store.configuration.getState(),
-        gasPrices
-      );
-      return result;
-    } else {
-      throw new Error('Unexpected FormType (expected "token" | "nft")');
+    async function createTransaction() {
+      const { type, to, tokenChain, tokenValue, nftChain, nftAmount } =
+        store.getState();
+      if (type === 'token') {
+        invariant(
+          address && to && asset && tokenChain && tokenValue,
+          'Send Form parameters missing'
+        );
+        const result = await sendView.store.createSendTransaction({
+          from: address,
+          to,
+          asset,
+          tokenChain,
+          tokenValue,
+        });
+        result.transaction = applyConfiguration(
+          result.transaction,
+          sendView.store.configuration.getState(),
+          gasPrices
+        );
+        return result;
+      } else if (type === 'nft') {
+        invariant(
+          nftChain && nftItem && nftAmount && to,
+          'Missing sendForm/createSendNFTTransaction params'
+        );
+        const result = await store.createSendNFTTransaction({
+          from: address,
+          to,
+          nftChain,
+          nftAmount,
+          nftItem,
+        });
+        result.transaction = applyConfiguration(
+          result.transaction,
+          sendView.store.configuration.getState(),
+          gasPrices
+        );
+        return result;
+      } else {
+        throw new Error('Unexpected FormType (expected "token" | "nft")');
+      }
     }
+    const result = await createTransaction();
+    if (result.transaction.value == null) {
+      result.transaction = {
+        ...result.transaction,
+        value: '0x0',
+      };
+    }
+    if (USE_PAYMASTER_FEATURE && result.transaction.nonce == null) {
+      const { transaction } = result;
+      const chainStr = tokenChain || nftChain;
+      invariant(chainStr, 'chain value missing');
+      invariant(networks, 'networks value missing');
+
+      const { value: nonce } = await uiGetBestKnownTransactionCount({
+        address: transaction.from,
+        chain: createChain(chainStr),
+        networks,
+        defaultBlock: 'pending',
+      });
+      result.transaction = { ...transaction, nonce };
+    }
+    return result;
   });
 
   const signTxBtnRef = useRef<SendTxBtnHandle | null>(null);
+
+  const chainId = chain ? networks?.getChainId(chain) : null;
+  const network = chain ? networks?.getNetworkByName(chain) : null;
+  const eligibilityQuery = useQuery({
+    enabled: Boolean(
+      USE_PAYMASTER_FEATURE &&
+        network?.supports_sponsored_transactions &&
+        chainId &&
+        chain &&
+        networks
+    ),
+    suspense: false,
+    staleTime: 120000,
+    queryKey: [
+      'paymaster/check-eligibility',
+      chainId,
+      chain,
+      networks,
+      userNonce,
+      address,
+    ],
+    queryFn: async () => {
+      invariant(chainId, 'chainId not set');
+      invariant(chain, 'chain not set');
+      invariant(networks, 'networks not set');
+      let nonce = userNonce;
+      if (nonce == null) {
+        const { value } = await uiGetBestKnownTransactionCount({
+          address,
+          chain,
+          networks,
+          defaultBlock: 'pending',
+        });
+        nonce = value;
+      }
+      const from = address;
+      return ZerionAPI.checkPaymasterEligibility({ from, chainId, nonce });
+    },
+  });
+  const paymasterEligible = Boolean(eligibilityQuery?.data?.data.eligible);
 
   const {
     mutate: sendTransaction,
@@ -232,8 +313,15 @@ export function SendForm() {
     mutationFn: async () => {
       const { to } = store.getState();
       invariant(to, 'Send Form parameters missing');
-      const { transaction, amount, asset } =
-        await configureTransactionToBeSigned();
+      const {
+        transaction: tx,
+        amount,
+        asset,
+      } = await configureTransactionToBeSigned();
+      let transaction = tx;
+      if (paymasterEligible) {
+        transaction = await fetchAndAssignPaymaster(transaction);
+      }
       const feeValueCommon = feeValueCommonRef.current || null;
 
       invariant(chain, 'Chain must be defined to sign the tx');
@@ -363,6 +451,13 @@ export function SendForm() {
                   sendView.handleChange('tokenChain', value);
                 }}
                 dialogRootNode={rootNode}
+                filterPredicate={(network) => {
+                  if (preferences?.testnetMode?.on) {
+                    return network.is_testnet || isCustomNetworkId(network.id);
+                  } else {
+                    return true;
+                  }
+                }}
               />
             ) : (
               <NetworkSelect
@@ -462,7 +557,7 @@ export function SendForm() {
                       transaction={transaction}
                       from={address}
                       chain={chain}
-                      paymasterEligible={false}
+                      paymasterEligible={paymasterEligible}
                       onFeeValueCommonReady={handleFeeValueCommonReady}
                       configuration={configuration}
                       onConfigurationChange={(value) =>
@@ -491,16 +586,21 @@ export function SendForm() {
           renderWhenOpen={() => {
             invariant(chain, 'Chain must be defined');
             return (
-              <ViewLoadingSuspense>
-                <SendTransactionConfirmation
-                  getTransaction={async () => {
-                    const result = await configureTransactionToBeSigned();
-                    return result.transaction;
-                  }}
-                  chain={chain}
-                  sendView={sendView}
-                />
-              </ViewLoadingSuspense>
+              <>
+                <DisableTestnetShortcuts />
+                <ViewLoadingSuspense>
+                  <SendTransactionConfirmation
+                    getTransaction={async () => {
+                      const result = await configureTransactionToBeSigned();
+                      return result.transaction;
+                    }}
+                    chain={chain}
+                    sendView={sendView}
+                    paymasterEligible={paymasterEligible}
+                    eligibilityQuery={eligibilityQuery}
+                  />
+                </ViewLoadingSuspense>
+              </>
             );
           }}
         ></BottomSheetDialog>
@@ -522,5 +622,15 @@ export function SendForm() {
       </>
       <PageBottom />
     </PageColumn>
+  );
+}
+
+export function SendForm() {
+  const { preferences } = usePreferences();
+  return (
+    <SendFormComponent
+      // TODO: reset nft tab when testnet mode changes?
+      key={preferences?.testnetMode?.on ? 'testnet' : 'mainnet'}
+    />
   );
 }

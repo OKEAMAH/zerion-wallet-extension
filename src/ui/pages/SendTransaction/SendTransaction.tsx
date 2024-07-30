@@ -1,14 +1,8 @@
-import React, {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from 'react';
-import { ethers } from 'ethers';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
+import type { ethers } from 'ethers';
+import { hashQueryKey, useMutation, useQuery } from '@tanstack/react-query';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import type { AddressAction } from 'defi-sdk';
+import { Client, type AddressAction } from 'defi-sdk';
 import type { CustomConfiguration } from '@zeriontech/transactions';
 import type { AnyAddressAction } from 'src/modules/ethereum/transactions/addressAction';
 import { incomingTxToIncomingAddressAction } from 'src/modules/ethereum/transactions/addressAction/creators';
@@ -17,7 +11,6 @@ import type {
   IncomingTransactionWithChainId,
 } from 'src/modules/ethereum/types/IncomingTransaction';
 import { useNetworks } from 'src/modules/networks/useNetworks';
-import { KeyboardShortcut } from 'src/ui/components/KeyboardShortcut';
 import { PageColumn } from 'src/ui/components/PageColumn';
 import { PageTop } from 'src/ui/components/PageTop';
 import { walletPort, windowPort } from 'src/ui/shared/channels';
@@ -45,7 +38,7 @@ import { Button } from 'src/ui/ui-kit/Button';
 import { focusNode } from 'src/ui/shared/focusNode';
 import { useAddressParams } from 'src/ui/shared/user-address/useAddressParams';
 import { WalletDisplayName } from 'src/ui/components/WalletDisplayName';
-import { networksStore } from 'src/modules/networks/networks-store.client';
+import { getNetworksStore } from 'src/modules/networks/networks-store.client';
 import type { PartiallyRequired } from 'src/shared/type-utils/PartiallyRequired';
 import { useGasPrices } from 'src/ui/shared/requests/useGasPrices';
 import { openInNewWindow } from 'src/ui/shared/openInNewWindow';
@@ -78,13 +71,21 @@ import { InterpretationState } from 'src/ui/components/InterpretationState';
 import type { InterpretResponse } from 'src/modules/ethereum/transactions/types';
 import { hasCriticalWarning } from 'src/ui/components/InterpretationState/InterpretationState';
 import { normalizeChainId } from 'src/shared/normalizeChainId';
-import { uiGetBestKnownTransactionCount } from 'src/modules/ethereum/transactions/getBestKnownTransactionCount/uiGetBestKnownTransactionCount';
+import type { NetworksSource } from 'src/modules/zerion-api/zerion-api';
 import { ZerionAPI } from 'src/modules/zerion-api/zerion-api';
-import { getGas } from 'src/modules/ethereum/transactions/getGas';
-import { valueToHex } from 'src/shared/units/valueToHex';
 import type { ChainGasPrice } from 'src/modules/ethereum/transactions/gasPrices/types';
 import { FEATURE_PAYMASTER_ENABLED } from 'src/env/config';
 import { hasNetworkFee } from 'src/modules/ethereum/transactions/gasPrices/hasNetworkFee';
+import { uiGetBestKnownTransactionCount } from 'src/modules/ethereum/transactions/getBestKnownTransactionCount/uiGetBestKnownTransactionCount';
+import { resolveChainId } from 'src/modules/ethereum/transactions/resolveChainId';
+import { normalizeTransactionChainId } from 'src/modules/ethereum/transactions/normalizeTransactionChainId';
+import { usePreferences } from 'src/ui/features/preferences';
+import { useDefiSdkClient } from 'src/modules/defi-sdk/useDefiSdkClient';
+import { fetchAndAssignPaymaster } from 'src/modules/ethereum/account-abstraction/fetchAndAssignPaymaster';
+import { isDeviceAccount } from 'src/shared/types/validators';
+import { shouldInterpretTransaction } from 'src/modules/ethereum/account-abstraction/shouldInterpretTransaction';
+import { useCurrency } from 'src/modules/currency/useCurrency';
+import { RenderArea } from 'react-area';
 import { TransactionConfiguration } from './TransactionConfiguration';
 import {
   DEFAULT_CONFIGURATION,
@@ -93,108 +94,6 @@ import {
 import { TransactionAdvancedView } from './TransactionAdvancedView';
 import { TransactionWarnings } from './TransactionWarnings';
 import { txErrorToMessage } from './shared/transactionErrorToMessage';
-
-function assertTransactionProps(
-  tx: IncomingTransaction
-): Required<
-  Pick<
-    IncomingTransaction,
-    | 'from'
-    | 'to'
-    | 'nonce'
-    | 'chainId'
-    | 'gasLimit'
-    | 'maxFeePerGas'
-    | 'maxPriorityFeePerGas'
-    | 'value'
-    | 'data'
-  >
-> {
-  const {
-    from,
-    to,
-    nonce,
-    chainId,
-    maxFeePerGas,
-    maxPriorityFeePerGas,
-    data,
-    value,
-  } = tx;
-  const gasLimit = getGas(tx);
-  invariant(from, 'tx param missing: {from}');
-  invariant(to, 'tx param missing: {to}');
-  invariant(nonce != null, 'tx param missing: {nonce}');
-  invariant(chainId, 'tx param missing: {chainId}');
-  invariant(maxFeePerGas, 'tx param missing: {maxFeePerGas}');
-  invariant(maxPriorityFeePerGas, 'tx param missing: {maxPriorityFeePerGas}');
-  invariant(data, 'tx param missing: {data}');
-  invariant(value, 'tx param missing: {value}');
-  invariant(gasLimit, 'tx param missing: {gasLimit}');
-  return {
-    from,
-    to,
-    nonce,
-    chainId,
-    maxFeePerGas,
-    maxPriorityFeePerGas,
-    data,
-    value,
-    gasLimit,
-  };
-}
-
-async function getPaymasterParams(
-  incomingTransaction: IncomingTransaction,
-  { gasPerPubdataByte }: { gasPerPubdataByte: string }
-) {
-  interface PaymasterParamsResponse {
-    data: {
-      eligible: boolean;
-      paymasterParams: {
-        paymaster: string;
-        paymasterInput: string;
-      };
-      chargesData: {
-        amount: number;
-        deadline: string;
-        eta: null;
-      };
-    };
-    errors?: null | { title: string; detail: string }[];
-  }
-  type Request = {
-    from: string;
-    to: string;
-    nonce: string;
-    chainId: string;
-    gas: string;
-    gasPerPubdataByte: string;
-    maxFee: string;
-    maxPriorityFee: string;
-    value: string;
-    data: string;
-  };
-  const transaction = assertTransactionProps(incomingTransaction);
-  const params: Request = {
-    from: transaction.from,
-    to: transaction.to,
-    nonce: valueToHex(transaction.nonce),
-    chainId: normalizeChainId(transaction.chainId),
-    gas: valueToHex(transaction.gasLimit),
-    gasPerPubdataByte,
-    data: valueToHex(transaction.data),
-    maxFee: valueToHex(transaction.maxFeePerGas),
-    maxPriorityFee: valueToHex(transaction.maxPriorityFeePerGas),
-    value: valueToHex(transaction.value),
-  };
-  const { data } = await ZerionAPI.get<PaymasterParamsResponse>(
-    `/paymaster/get-params/v1?${new URLSearchParams({
-      ...params,
-      backend_env: 'zero',
-    })}`
-  );
-  return data;
-}
 
 async function configureTransactionToSign<T extends IncomingTransaction>(
   transaction: T,
@@ -216,7 +115,7 @@ async function configureTransactionToSign<T extends IncomingTransaction>(
     chainGasPrices: ChainGasPrice | null;
   }
 ): Promise<PartiallyRequired<T, 'chainId' | 'from'>> {
-  let tx = transaction as T | IncomingTransaction;
+  let tx = { ...transaction } as T | IncomingTransaction;
 
   const chainId = transaction.chainId || networks.getChainId(chain);
   invariant(chainId, 'Could not resolve chainId for tx to sign');
@@ -238,7 +137,8 @@ async function configureTransactionToSign<T extends IncomingTransaction>(
     tx.value = '0x0';
   }
 
-  if (tx.nonce == null) {
+  if (FEATURE_PAYMASTER_ENABLED && tx.nonce == null) {
+    // if {FEATURE_PAYMASTER} is disabled, we don't require nonce at this point. It will be fetched later anyway
     const { value: nonce } = await uiGetBestKnownTransactionCount({
       address: tx.from || from,
       chain,
@@ -253,41 +153,32 @@ async function configureTransactionToSign<T extends IncomingTransaction>(
   return tx as PartiallyRequired<T, 'chainId' | 'from'>;
 }
 
-async function assignPaymaster<T extends IncomingTransaction>(tx: T) {
-  const txCopy = { ...tx };
-  const gas = getGas(txCopy);
-  invariant(gas, 'Tx param missing: {gas}');
-  const moreGas = ethers.BigNumber.from(gas).add(20000).toHexString();
-  txCopy.gasLimit = moreGas;
-  const gasPerPubdataByte = valueToHex(50000);
-  const { eligible, paymasterParams } = await getPaymasterParams(txCopy, {
-    gasPerPubdataByte,
-  });
-  if (eligible && paymasterParams) {
-    txCopy.customData = { paymasterParams, gasPerPubdata: gasPerPubdataByte };
-    return txCopy;
-  } else {
-    // NOTE: Maybe better to throw here? If paymaster endoint returns {eligible: false},
-    // can it be an unexpected behavior to silently submit a transaction without a paymaster?
-    return tx;
-  }
-}
-
 async function resolveChain(
   transaction: IncomingTransaction,
   currentChain: Chain
 ): Promise<PartiallyRequired<IncomingTransaction, 'chainId'>> {
-  const networks = await networksStore.load([currentChain.toString()]);
-  const chainId = transaction.chainId
-    ? normalizeChainId(transaction.chainId)
-    : networks.getChainId(currentChain);
-  invariant(chainId, 'chainId should exist for resolving transaction');
-  return { ...transaction, chainId };
+  const networksStore = await getNetworksStore();
+  const txChainId = normalizeTransactionChainId(transaction);
+  if (txChainId) {
+    await networksStore.loadNetworksByChainId(txChainId); // side-effect: load this network into networks store
+    return { ...transaction, chainId: txChainId };
+  } else {
+    const chain = currentChain.toString();
+    const networks = await networksStore.load({ chains: [chain] }); // side-effect: load this network into networks store
+    const chainId = networks.getChainId(currentChain);
+    invariant(chainId, 'chainId should exist for resolving transaction');
+    return { ...transaction, chainId };
+  }
 }
 
-async function resolveGasAndFee(transaction: IncomingTransactionWithChainId) {
-  const networks = await networksStore.load();
-  return await prepareGasAndNetworkFee(transaction, networks);
+async function resolveGasAndFee(
+  transaction: IncomingTransactionWithChainId,
+  { source }: { source: NetworksSource }
+) {
+  const chainId = resolveChainId(transaction);
+  const networksStore = await getNetworksStore();
+  const networks = await networksStore.loadNetworksByChainId(chainId);
+  return await prepareGasAndNetworkFee(transaction, networks, { source });
 }
 
 function usePreparedTx(transaction: IncomingTransaction, origin: string) {
@@ -306,9 +197,12 @@ function usePreparedTx(transaction: IncomingTransaction, origin: string) {
     },
   });
   const withChainId = resolveChainQuery.data;
+  const { preferences } = usePreferences();
+  const source = preferences?.testnetMode?.on ? 'testnet' : 'mainnet';
   const resolveGasQuery = useQuery({
-    queryKey: ['resolveGasAndFee', withChainId],
-    queryFn: async () => (withChainId ? resolveGasAndFee(withChainId) : null),
+    queryKey: ['resolveGasAndFee', withChainId, source],
+    queryFn: async () =>
+      withChainId ? resolveGasAndFee(withChainId, { source }) : null,
     enabled: Boolean(withChainId),
     useErrorBoundary: true,
     suspense: false,
@@ -317,26 +211,6 @@ function usePreparedTx(transaction: IncomingTransaction, origin: string) {
     /** popuLATERtrasaction - it's partially populated now and will get more data later :D */
     populatedTransaction: resolveGasQuery.data || withChainId || null,
   };
-}
-
-function checkPaymasterEligibility(
-  tx: PartiallyRequired<IncomingTransaction, 'chainId' | 'from'>
-) {
-  const { nonce, chainId, from } = tx;
-  invariant(nonce != null, 'Nonce is required to check eligibility');
-  const params = new URLSearchParams({
-    from,
-    chainId: normalizeChainId(chainId),
-    nonce: valueToHex(nonce),
-    backend_env: 'zero',
-  });
-  interface PaymasterCheckEligibilityResponse {
-    data: { eligible: boolean; eta: null | number };
-    errors?: null | { title: string; detail: string }[];
-  }
-  return ZerionAPI.get<PaymasterCheckEligibilityResponse>(
-    `/paymaster/check-eligibility/v1?${params}`
-  );
 }
 
 function useLocalAddressAction({
@@ -350,6 +224,8 @@ function useLocalAddressAction({
   transaction: IncomingTransactionWithChainId;
   networks: Networks;
 }) {
+  const client = useDefiSdkClient();
+  const { currency } = useCurrency();
   return useQuery({
     queryKey: [
       'incomingTxToIncomingAddressAction',
@@ -357,12 +233,20 @@ function useLocalAddressAction({
       transactionAction,
       networks,
       from,
+      client,
+      currency,
     ],
+    queryKeyHashFn: (queryKey) => {
+      const key = queryKey.map((x) => (x instanceof Client ? x.url : x));
+      return hashQueryKey(key);
+    },
     queryFn: () => {
       return incomingTxToIncomingAddressAction(
         { transaction: { ...transaction, from }, hash: '', timestamp: 0 },
         transactionAction,
-        networks
+        networks,
+        currency,
+        client
       );
     },
     keepPreviousData: true,
@@ -378,20 +262,36 @@ function useInterpretTransaction({
   transaction,
   address,
   origin,
+  client,
   enabled = true,
 }: {
   transaction: IncomingTransactionWithChainId;
   address: string;
   origin: string;
+  client: Client;
   enabled?: boolean;
 }) {
+  const { currency } = useCurrency();
   return useQuery({
-    queryKey: ['interpretTransaction', transaction, address, origin],
+    queryKey: [
+      'interpretTransaction',
+      transaction,
+      address,
+      origin,
+      currency,
+      client,
+    ],
+    queryKeyHashFn: (queryKey) => {
+      const key = queryKey.map((x) => (x instanceof Client ? x.url : x));
+      return hashQueryKey(key);
+    },
     queryFn: () =>
       interpretTransaction({
         address,
         transaction,
         origin,
+        client,
+        currency,
       }),
     enabled,
     keepPreviousData: true,
@@ -502,6 +402,7 @@ function TransactionDefaultView({
           actionTransfers={actionTransfers}
           singleAsset={singleAsset}
           allowanceQuantityBase={allowanceQuantityBase}
+          showApplicationLine={true}
           singleAssetElementEnd={
             allowanceQuantityBase && addressAction.type.value === 'approve' ? (
               <UIText
@@ -556,7 +457,7 @@ function TransactionDefaultView({
                 <React.Suspense
                   fallback={
                     <div style={{ display: 'flex', justifyContent: 'end' }}>
-                      tr conf suspense <CircleSpinner />
+                      <CircleSpinner />
                     </div>
                   }
                 >
@@ -603,6 +504,7 @@ function SendTransactionContent({
   networks: Networks;
 }) {
   const [params] = useSearchParams();
+  const { currency } = useCurrency();
   const navigate = useNavigate();
   const { singleAddress } = useAddressParams();
   const [configuration, setConfiguration] = useState(DEFAULT_CONFIGURATION);
@@ -636,25 +538,33 @@ function SendTransactionContent({
       })
   );
 
-  const { data: eligibility } = useQuery({
+  const isDeviceWallet = isDeviceAccount(wallet);
+  const USE_PAYMASTER_FEATURE = FEATURE_PAYMASTER_ENABLED && !isDeviceWallet;
+
+  const network = networks.getNetworkByName(chain) || null;
+
+  const eligibilityQuery = useQuery({
+    enabled: USE_PAYMASTER_FEATURE && network?.supports_sponsored_transactions,
     suspense: false,
     staleTime: 120000,
     queryKey: ['paymaster/check-eligibility', incomingTransaction],
     queryFn: async () => {
       const tx = await configureTransactionToBeSigned(incomingTransaction);
-      return checkPaymasterEligibility(tx);
+      return ZerionAPI.checkPaymasterEligibility(tx);
     },
-    enabled: FEATURE_PAYMASTER_ENABLED,
   });
 
-  const paymasterEligible = Boolean(eligibility?.data.eligible);
+  const paymasterEligible = Boolean(eligibilityQuery.data?.data.eligible);
+
+  const client = useDefiSdkClient();
 
   const txInterpretQuery = useInterpretTransaction({
     transaction: populatedTransaction,
     address: singleAddress,
     origin,
-    enabled: FEATURE_PAYMASTER_ENABLED
-      ? eligibility?.data.eligible === false
+    client,
+    enabled: USE_PAYMASTER_FEATURE
+      ? shouldInterpretTransaction({ network, eligibilityQuery })
       : true,
   });
 
@@ -671,7 +581,13 @@ function SendTransactionContent({
       singleAddress,
       networks,
       transactionAction,
+      client,
+      currency,
     ],
+    queryKeyHashFn: (queryKey) => {
+      const key = queryKey.map((x) => (x instanceof Client ? x.url : x));
+      return hashQueryKey(key);
+    },
     queryFn: async () => {
       const configuredTx = await configureTransactionToSign(
         populatedTransaction,
@@ -685,7 +601,7 @@ function SendTransactionContent({
           transactionAction,
         }
       );
-      const toSign = await assignPaymaster(configuredTx);
+      const toSign = await fetchAndAssignPaymaster(configuredTx);
       const typedData = await walletPort.request('uiGetEip712Transaction', {
         transaction: toSign,
       });
@@ -693,6 +609,8 @@ function SendTransactionContent({
         address: toSign.from,
         chainId: normalizeChainId(toSign.chainId),
         typedData,
+        client,
+        currency,
       });
     },
   });
@@ -740,9 +658,9 @@ function SendTransactionContent({
       invariant(sendTxBtnRef.current, 'SignTransactionButton not found');
       let tx = await configureTransactionToBeSigned(populatedTransaction);
       if (paymasterEligible) {
-        tx = await assignPaymaster(tx);
+        tx = await fetchAndAssignPaymaster(tx);
       }
-      if (FEATURE_PAYMASTER_ENABLED) {
+      if (USE_PAYMASTER_FEATURE) {
         console.log('sending to wallet', { tx });
       }
       const feeValueCommon = feeValueCommonRef.current || null;
@@ -784,7 +702,6 @@ function SendTransactionContent({
   return (
     <Background backgroundKind="white">
       <NavigationTitle title={null} documentTitle="Send Transaction" />
-      <KeyboardShortcut combination="esc" onKeyDown={handleReject} />
       <PageColumn
         // different surface color on backgroundKind="white"
         style={{
@@ -848,37 +765,45 @@ function SendTransactionContent({
               {txErrorToMessage(sendTransactionMutation.error)}
             </UIText>
           ) : null}
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: interpretationHasCriticalWarning
-                ? '1fr'
-                : '1fr 1fr',
-              gap: 8,
-            }}
-          >
-            <Button
-              ref={focusNode}
-              kind={interpretationHasCriticalWarning ? 'primary' : 'regular'}
-              type="button"
-              onClick={handleReject}
+          {view === View.customAllowance ? (
+            <RenderArea name="sign-transaction-footer" />
+          ) : (
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: interpretationHasCriticalWarning
+                  ? '1fr'
+                  : '1fr 1fr',
+                gap: 8,
+              }}
             >
-              Cancel
-            </Button>
-            <SignTransactionButton
-              // TODO: set loading state when {sendTransactionMutation.isLoading}
-              // (important for paymaster flow)
-              wallet={wallet}
-              ref={sendTxBtnRef}
-              onClick={() => sendTransaction()}
-              buttonKind={
-                interpretationHasCriticalWarning ? 'danger' : 'primary'
-              }
-              buttonTitle={
-                interpretationHasCriticalWarning ? 'Proceed Anyway' : undefined
-              }
-            />
-          </div>
+              <Button
+                ref={focusNode}
+                kind={interpretationHasCriticalWarning ? 'primary' : 'regular'}
+                type="button"
+                onClick={handleReject}
+              >
+                Cancel
+              </Button>
+              <SignTransactionButton
+                // TODO: set loading state when {sendTransactionMutation.isLoading}
+                // (important for paymaster flow)
+                wallet={wallet}
+                ref={sendTxBtnRef}
+                onClick={() => sendTransaction()}
+                isLoading={sendTransactionMutation.isLoading}
+                disabled={sendTransactionMutation.isLoading}
+                buttonKind={
+                  interpretationHasCriticalWarning ? 'danger' : 'primary'
+                }
+                buttonTitle={
+                  interpretationHasCriticalWarning
+                    ? 'Proceed Anyway'
+                    : undefined
+                }
+              />
+            </div>
+          )}
         </VStack>
         <PageBottom />
       </PageStickyFooter>
@@ -905,21 +830,17 @@ export function SendTransaction() {
     [transactionStringified]
   );
 
+  // NOTE: this hook populates {networks} with a network for resolved chainId
+  // This is why the {networks} object has necessary data, but it's very implicit.
   const { populatedTransaction } = usePreparedTx(incomingTransaction, origin);
+  const { networks } = useNetworks();
 
-  const chainId = populatedTransaction
-    ? normalizeChainId(populatedTransaction.chainId)
-    : null;
-  const { networks, loadNetworkByChainId } = useNetworks();
-  useEffect(() => {
-    if (chainId) {
-      loadNetworkByChainId(chainId);
-    }
-  }, [chainId, loadNetworkByChainId]);
-  const chain = (chainId ? networks?.getChainById(chainId) : null) || null;
-  if (isLoading || !wallet || !networks || !populatedTransaction || !chain) {
+  if (isLoading || !wallet || !networks || !populatedTransaction) {
     return null;
   }
+  const chainId = normalizeChainId(populatedTransaction.chainId);
+  const chain = chainId ? networks.getChainById(chainId) : null;
+  invariant(chain, 'Could not resolve network or chainId');
 
   const clientScope = params.get('clientScope');
 

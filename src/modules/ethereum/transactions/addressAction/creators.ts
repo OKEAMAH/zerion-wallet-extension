@@ -1,4 +1,4 @@
-import type { AddressAction } from 'defi-sdk';
+import type { AddressAction, Client } from 'defi-sdk';
 import { nanoid } from 'nanoid';
 import { capitalize } from 'capitalize-ts';
 import {
@@ -8,7 +8,7 @@ import {
 import type { Networks } from 'src/modules/networks/Networks';
 import type { Chain } from 'src/modules/networks/Chain';
 import type { BigNumberish } from 'ethers';
-import { ethers } from 'ethers';
+import { valueToHex } from 'src/shared/units/valueToHex';
 import { UnsupportedNetwork } from 'src/modules/networks/errors';
 import { normalizeChainId } from 'src/shared/normalizeChainId';
 import type {
@@ -25,7 +25,9 @@ import type { ChainId } from '../ChainId';
 import { ZERO_HASH, type LocalAddressAction } from './addressActionMain';
 
 export async function createActionContent(
-  action: TransactionAction
+  action: TransactionAction,
+  currency: string,
+  client: Client,
 ): Promise<AddressAction['content'] | null> {
   switch (action.type) {
     case 'execute':
@@ -39,13 +41,15 @@ export async function createActionContent(
             chain: action.chain,
             id: action.assetId,
             address: action.assetAddress,
+            currency,
           }
         : {
             isNative: false,
             chain: action.chain,
             address: action.assetAddress,
+            currency,
           };
-      const asset = await fetchAssetFromCacheOrAPI(query);
+      const asset = await fetchAssetFromCacheOrAPI(query, client);
       return asset && action.amount
         ? {
             transfers: {
@@ -61,11 +65,10 @@ export async function createActionContent(
         : null;
     }
     case 'approve': {
-      const asset = await fetchAssetFromCacheOrAPI({
-        isNative: false,
-        chain: action.chain,
-        address: action.assetAddress,
-      });
+      const asset = await fetchAssetFromCacheOrAPI(
+        { isNative: false, chain: action.chain, address: action.assetAddress, currency },
+        client
+      );
       return asset
         ? {
             single_asset: {
@@ -114,7 +117,9 @@ function createActionLabel(
 
 export async function pendingTransactionToAddressAction(
   transactionObject: TransactionObject,
-  loadNetworkByChainId: (chainId: ChainId) => Promise<Networks>
+  loadNetworkByChainId: (chainId: ChainId) => Promise<Networks>,
+  currency: string,
+  client: Client
 ): Promise<LocalAddressAction> {
   const { transaction, hash, receipt, timestamp, dropped } = transactionObject;
   let chain: Chain | null;
@@ -133,7 +138,7 @@ export async function pendingTransactionToAddressAction(
     ? describeTransaction(transaction, { networks, chain })
     : null;
   const label = action ? createActionLabel(transaction, action) : null;
-  const content = action ? await createActionContent(action) : null;
+  const content = action ? await createActionContent(action, currency, client) : null;
   return {
     id: hash,
     address: transaction.from,
@@ -144,7 +149,7 @@ export async function pendingTransactionToAddressAction(
         ? chain.toString()
         : // It's okay to fallback to a stringified chainId because this is
           // only a representational object
-          ethers.utils.hexValue(transaction.chainId),
+          valueToHex(transaction.chainId),
       status: receipt
         ? receipt.status === 1
           ? 'confirmed'
@@ -154,6 +159,7 @@ export async function pendingTransactionToAddressAction(
         : 'pending',
       fee: null,
       nonce: transaction.nonce || 0,
+      sponsored: false,
     },
     datetime: new Date(timestamp ?? Date.now()).toISOString(),
     label,
@@ -177,12 +183,14 @@ export async function incomingTxToIncomingAddressAction(
     };
   } & Pick<TransactionObject, 'hash' | 'receipt' | 'timestamp' | 'dropped'>,
   transactionAction: TransactionAction,
-  networks: Networks
+  networks: Networks,
+  currency: string,
+  client: Client
 ): Promise<LocalAddressAction> {
   const { transaction, timestamp } = transactionObject;
   const chain = networks.getChainById(normalizeChainId(transaction.chainId));
   const label = createActionLabel(transaction, transactionAction);
-  const content = await createActionContent(transactionAction);
+  const content = await createActionContent(transactionAction, currency, client);
   return {
     id: nanoid(),
     local: true,
@@ -192,6 +200,7 @@ export async function incomingTxToIncomingAddressAction(
       chain: chain.toString(),
       status: 'pending',
       fee: null,
+      sponsored: false,
       // nonce can be "BigNumberish" due to
       // ethers types: {import("@ethersproject/abstract-provider").TransactionRequest}
       // Converting bignumber to number cannot be safe, but can nonce be really > MAX_SAFE_INTEGER?
