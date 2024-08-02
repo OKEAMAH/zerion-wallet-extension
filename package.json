@@ -103,7 +103,7 @@
     "@zeriontech/transactions": "^0.0.14",
     "bignumber.js": "^9.1.1",
     "buffer": "^6.0.3",
-    "canvas-confetti": "^1.6.0",
+    "canvas-confetti": "^1.9.3",
     "capitalize-ts": "^1.0.0",
     "classnames": "^2.3.2",
     "dayjs": "^1.11.9",
