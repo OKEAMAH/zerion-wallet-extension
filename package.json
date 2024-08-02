@@ -117,7 +117,7 @@
     "lodash": "^4.17.21",
     "memoize-one": "^6.0.0",
     "nanoevents": "^8.0.0",
-    "nanoid": "^4.0.2",
+    "nanoid": "^5.0.7",
     "normalize.css": "^8.0.1",
     "normalized-contains": "^1.0.0",
     "react": "^18.2.0",
