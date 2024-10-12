@@ -109,7 +109,7 @@
     "dayjs": "^1.11.9",
     "defi-sdk": "^0.1.0-alpha.76",
     "downshift": "^7.6.0",
-    "ethers": "^5.7.2",
+    "ethers": "^6.0.0",
     "events": "^3.3.0",
     "immer": "^10.0.2",
     "is-truthy-ts": "^1.0.1",
@@ -129,6 +129,6 @@
     "store-unit": "^1.0.3",
     "uuid": "^9.0.0",
     "webextension-polyfill": "^0.10.0",
-    "zksync-ethers": "^5.7.2"
+    "zksync-ethers": "^6.0.0"
   }
 }
